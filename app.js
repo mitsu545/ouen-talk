@@ -8,6 +8,7 @@ var PROACTIVE_HOURS = 6; // ① この時間以上空いたら向こうからメ
 var DEFAULT_STATE = {
   apiKey: "",
   model: "gemini-2.5-flash",
+  globalPrompt: "",
   lastOpen: 0,
   unread: { c1: 0, c2: 0, c3: 0, g1: 0 },
   chars: [
@@ -33,6 +34,7 @@ function loadState() {
       if (!s.histories[GROUP_ID]) { s.histories[GROUP_ID] = []; }
       if (!s.unread) { s.unread = { c1: 0, c2: 0, c3: 0, g1: 0 }; }
       if (!s.lastOpen) { s.lastOpen = 0; }
+      if (typeof s.globalPrompt !== "string") { s.globalPrompt = ""; }
     }
   } catch (e) { console.error("load error", e); }
   return s;
@@ -219,8 +221,23 @@ function addAiMessages(roomId, msgs, idx, asUnread) {
   setTimeout(function () { addAiMessages(roomId, msgs, idx + 1, asUnread); }, 600);
 }
 
+function globalPromptText() {
+  return state.globalPrompt ? ("\n【全員共通のトーン指示】" + state.globalPrompt) : "";
+}
+
 // ===== Gemini API 共通 =====
 function geminiFetch(systemText, contents, maxTokens) {
+  return geminiFetchOnce(systemText, contents, maxTokens).catch(function (err) {
+    if (err.message === "API 429") {
+      // 429（混雑）のときだけ2秒待って1回だけ再試行し、無言で会話が止まるのを防ぐ
+      return new Promise(function (resolve) { setTimeout(resolve, 2000); })
+        .then(function () { return geminiFetchOnce(systemText, contents, maxTokens); });
+    }
+    throw err;
+  });
+}
+
+function geminiFetchOnce(systemText, contents, maxTokens) {
   var url = "https://generativelanguage.googleapis.com/v1beta/models/" +
     encodeURIComponent(state.model) + ":generateContent?key=" + encodeURIComponent(state.apiKey);
   return fetch(url, {
@@ -268,7 +285,7 @@ function callGeminiSolo(charId) {
     "ユーザー（おみつ）を応援するのが役目です。" +
     " ユーザーの発言をただ聞き返すだけの返答は禁止です。必ず中身のある反応（励まし・労い・具体的な一言アドバイスなど）をしてください。" +
     " 返答はLINEのトークのように短文で、1〜3個のメッセージに分けてください。" +
-    " メッセージの区切りには ||| を使ってください。1メッセージは60文字以内。";
+    " メッセージの区切りには ||| を使ってください。1メッセージは60文字以内。" + globalPromptText();
   return geminiFetch(sys, historyToContents(charId), 400).then(function (text) {
     var out = [];
     var parts = text.split("|||");
@@ -292,7 +309,7 @@ function callGeminiGroup() {
     "ユーザー（おみつ）を応援するグループです。3人がキャラらしく掛け合いながら反応してください。" +
     " ユーザーの発言をただ聞き返すだけの返答は禁止です。必ず中身のある反応をしてください。" +
     " 2〜4個のメッセージを出力し、区切りには ||| を使ってください。" +
-    " 各メッセージは必ず「名前: 本文」の形式で、本文は60文字以内。同じ人が連続してもOKですが最低2人は登場させてください。";
+    " 各メッセージは必ず「名前: 本文」の形式で、本文は60文字以内。同じ人が連続してもOKですが最低2人は登場させてください。" + globalPromptText();
   return geminiFetch(sys, historyToContents(GROUP_ID), 700).then(function (text) {
     var out = [];
     var parts = text.split("|||");
@@ -323,7 +340,7 @@ function checkProactive() {
   var sys = "あなたは「" + ch.name + "」というキャラクターです。設定：" + ch.persona +
     " この性格・口調を必ず全メッセージで一貫して守ってください。" +
     " 今は" + hour + "時です。ユーザー（おみつ）からの返信を待たず、時間帯に合った応援・気づかいのメッセージを自分から送ってください。" +
-    " 1〜2個の短いメッセージで、区切りには ||| を使ってください。1メッセージは60文字以内。";
+    " 1〜2個の短いメッセージで、区切りには ||| を使ってください。1メッセージは60文字以内。" + globalPromptText();
   geminiFetch(sys, historyToContents(ch.id).concat([{ role: "user", parts: [{ text: "（しばらくアプリを開いていなかった）" }] }]), 300)
     .then(function (text) {
       apiBusy = false;
@@ -342,6 +359,7 @@ function checkProactive() {
 function renderSettings() {
   $("set-apikey").value = state.apiKey;
   $("set-model").value = state.model;
+  $("set-global-prompt").value = state.globalPrompt;
   var html = "";
   for (var i = 0; i < state.chars.length; i++) {
     var ch = state.chars[i];
@@ -408,6 +426,7 @@ function onIconSelect(e) {
 function saveSettings() {
   state.apiKey = $("set-apikey").value.trim();
   state.model = $("set-model").value.trim() || "gemini-2.5-flash";
+  state.globalPrompt = $("set-global-prompt").value.trim();
   var sections = document.querySelectorAll("#char-settings section[data-id]");
   for (var i = 0; i < sections.length; i++) {
     var id = sections[i].getAttribute("data-id");
