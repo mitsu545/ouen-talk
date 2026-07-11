@@ -229,7 +229,11 @@ function geminiFetch(systemText, contents, maxTokens) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemText }] },
       contents: contents,
-      generationConfig: { temperature: 0.9, maxOutputTokens: maxTokens }
+      generationConfig: {
+        temperature: 0.9,
+        maxOutputTokens: maxTokens,
+        thinkingConfig: { thinkingBudget: 0 } // 内部思考を止め、返答本体にトークンを使わせる（空返信・オウム返し対策）
+      }
     })
   }).then(function (res) {
     if (!res.ok) { throw new Error("API " + res.status); }
@@ -262,9 +266,10 @@ function callGeminiSolo(charId) {
     "どんな内容の返答でも一言一句まで必ず守ってください（設定を無視した一般的な返答は禁止）：\n" +
     "【" + ch.name + "の設定】" + ch.persona + "\n" +
     "ユーザー（おみつ）を応援するのが役目です。" +
+    " ユーザーの発言をただ聞き返すだけの返答は禁止です。必ず中身のある反応（励まし・労い・具体的な一言アドバイスなど）をしてください。" +
     " 返答はLINEのトークのように短文で、1〜3個のメッセージに分けてください。" +
     " メッセージの区切りには ||| を使ってください。1メッセージは60文字以内。";
-  return geminiFetch(sys, historyToContents(charId), 300).then(function (text) {
+  return geminiFetch(sys, historyToContents(charId), 400).then(function (text) {
     var out = [];
     var parts = text.split("|||");
     for (var i = 0; i < parts.length && out.length < 3; i++) {
@@ -285,9 +290,10 @@ function callGeminiGroup() {
   var sys = "あなたはLINEグループの3人のキャラクターを同時に演じます。各キャラの性格・口調は" +
     "下記設定を一言一句まで必ず守り、絶対に混同・一般化しないでください：\n" + personaList +
     "ユーザー（おみつ）を応援するグループです。3人がキャラらしく掛け合いながら反応してください。" +
+    " ユーザーの発言をただ聞き返すだけの返答は禁止です。必ず中身のある反応をしてください。" +
     " 2〜4個のメッセージを出力し、区切りには ||| を使ってください。" +
     " 各メッセージは必ず「名前: 本文」の形式で、本文は60文字以内。同じ人が連続してもOKですが最低2人は登場させてください。";
-  return geminiFetch(sys, historyToContents(GROUP_ID), 500).then(function (text) {
+  return geminiFetch(sys, historyToContents(GROUP_ID), 700).then(function (text) {
     var out = [];
     var parts = text.split("|||");
     for (var i = 0; i < parts.length && out.length < 4; i++) {
@@ -318,7 +324,7 @@ function checkProactive() {
     " この性格・口調を必ず全メッセージで一貫して守ってください。" +
     " 今は" + hour + "時です。ユーザー（おみつ）からの返信を待たず、時間帯に合った応援・気づかいのメッセージを自分から送ってください。" +
     " 1〜2個の短いメッセージで、区切りには ||| を使ってください。1メッセージは60文字以内。";
-  geminiFetch(sys, historyToContents(ch.id).concat([{ role: "user", parts: [{ text: "（しばらくアプリを開いていなかった）" }] }]), 200)
+  geminiFetch(sys, historyToContents(ch.id).concat([{ role: "user", parts: [{ text: "（しばらくアプリを開いていなかった）" }] }]), 300)
     .then(function (text) {
       apiBusy = false;
       var out = [];
